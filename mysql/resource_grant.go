@@ -307,7 +307,10 @@ func UpdateGrant(d *schema.ResourceData, meta interface{}) error {
 	table := d.Get("table").(string)
 
 	if d.HasChange("privileges") {
-		err = updatePrivileges(d, db, userOrRole, database, table)
+		oldPrivsIf, newPrivsIf := d.GetChange("privileges")
+		oldPrivs := oldPrivsIf.(*schema.Set)
+		newPrivs := newPrivsIf.(*schema.Set)
+		err = updatePrivileges(oldPrivs, newPrivs, db, userOrRole, database, table)
 
 		if err != nil {
 			return err
@@ -317,10 +320,7 @@ func UpdateGrant(d *schema.ResourceData, meta interface{}) error {
 	return nil
 }
 
-func updatePrivileges(d *schema.ResourceData, db *sql.DB, user string, database string, table string) error {
-	oldPrivsIf, newPrivsIf := d.GetChange("privileges")
-	oldPrivs := oldPrivsIf.(*schema.Set)
-	newPrivs := newPrivsIf.(*schema.Set)
+func updatePrivileges(newPrivs *schema.Set, oldPrivs *schema.Set, db *sql.DB, user string, database string, table string) error {
 	grantIfs := newPrivs.Difference(oldPrivs).List()
 	revokeIfs := oldPrivs.Difference(newPrivs).List()
 
@@ -502,9 +502,7 @@ func showGrants(db *sql.DB, user string) ([]*MySQLGrant, error) {
 		}
 
 		privsStr := m[1]
-		rem1 := regexp.MustCompile("[A-Z]+\\ ?\\([a-zA-Z0-9_,\\ `]+\\)|[A-Z]+ [A-Z]+ [A-Z]+|[A-Z]+ [A-Z]+|[A-Z]+")
-		priv_list := rem1.FindAllString(privsStr, -1)
-
+		priv_list := strings.Split(privsStr, ",")
 		privileges := make([]string, len(priv_list))
 
 		for i, priv := range priv_list {
