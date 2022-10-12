@@ -129,6 +129,7 @@ func expandGrants(p *schema.Set) []SubGrantRead {
 }
 
 func CreateGrants(d *schema.ResourceData, meta interface{}) error {
+	log.Printf("SQL: USING CREATE")
 	db, err := meta.(*MySQLConfiguration).GetDbConn()
 	if err != nil {
 		return err
@@ -198,7 +199,7 @@ func CreateGrants(d *schema.ResourceData, meta interface{}) error {
 			stmtSQL += " WITH GRANT OPTION"
 		}
 
-		log.Println("Executing statement:", stmtSQL)
+		log.Println("[DEBUG] SQL:", stmtSQL)
 		_, err = db.Exec(stmtSQL)
 		if err != nil {
 			return fmt.Errorf("error running SQL (%s): %s", stmtSQL, err)
@@ -212,6 +213,7 @@ func CreateGrants(d *schema.ResourceData, meta interface{}) error {
 }
 
 func ReadGrants(d *schema.ResourceData, meta interface{}) error {
+	log.Printf("SQL: USING READ")
 	db, err := meta.(*MySQLConfiguration).GetDbConn()
 	if err != nil {
 		return err
@@ -255,6 +257,7 @@ func ReadGrants(d *schema.ResourceData, meta interface{}) error {
 }
 
 func UpdateGrants(d *schema.ResourceData, meta interface{}) error {
+	log.Printf("SQL: USING UPDATE")
 	db, err := meta.(*MySQLConfiguration).GetDbConn()
 	if err != nil {
 		return err
@@ -301,9 +304,10 @@ func updatePrivilegesMulti(d *schema.ResourceData, db *sql.DB, user string) erro
 		found := false
 		for _, newPriv := range newPrivsList {
 			newPrivObj := newPriv.(map[string]interface{})
-			if formatTableName(newPrivObj["table"].(string)) == formatTableName(oldPrivObj["table"].(string)) && formatDatabaseName(oldPrivObj["database"].(string)) == newPrivObj["database"] {
+			log.Printf("SQL: %s, %s, %s, %s", formatTableName(newPrivObj["table"].(string)), formatTableName(oldPrivObj["table"].(string)), formatDatabaseName(oldPrivObj["database"].(string)), formatDatabaseName(newPrivObj["database"].(string)))
+			if formatTableName(newPrivObj["table"].(string)) == formatTableName(oldPrivObj["table"].(string)) && formatDatabaseName(oldPrivObj["database"].(string)) == formatDatabaseName(newPrivObj["database"].(string)) {
 				found = true
-				log.Printf("%s:%s found in new, updating", newPrivObj["database"], formatTableName(newPrivObj["table"].(string)))
+				log.Printf("SQL: %s:%s found in new, updating", newPrivObj["database"], formatTableName(newPrivObj["table"].(string)))
 				err := updatePrivileges(newPrivObj["privileges"].(*schema.Set), oldPrivObj["privileges"].(*schema.Set), db, user, formatDatabaseName(oldPrivObj["database"].(string)), formatTableName(oldPrivObj["table"].(string)))
 				if err != nil {
 					return err

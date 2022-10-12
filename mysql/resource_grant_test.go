@@ -228,7 +228,7 @@ func testAccPrivilegeExists(rn string, privilege string) resource.TestCheckFunc 
 		}
 
 		if !privilegeFound {
-			return fmt.Errorf("grant no found for %s", userOrRole)
+			return fmt.Errorf("grant %s not found for %s", privilege, userOrRole)
 		}
 
 		return nil
