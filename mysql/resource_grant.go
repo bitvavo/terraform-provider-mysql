@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 )
 
@@ -97,59 +96,6 @@ func resourceGrant() *schema.Resource {
 			},
 		},
 	}
-}
-
-func flattenList(list []interface{}, template string) string {
-	var result []string
-	for _, v := range list {
-		result = append(result, fmt.Sprintf(template, v.(string)))
-	}
-
-	return strings.Join(result, ", ")
-}
-
-func formatDatabaseName(database string) string {
-	if strings.Compare(database, "*") != 0 && !strings.HasSuffix(database, "`") {
-		database = fmt.Sprintf("`%s`", database)
-
-		if strings.HasPrefix(database, "`PROCEDURE ") {
-			database = strings.Replace(database, "`PROCEDURE ", "PROCEDURE `", 1)
-		}
-	}
-
-	return database
-}
-
-func formatTableName(table string) string {
-	if table == "" || table == "*" {
-		return fmt.Sprintf("*")
-	}
-	return fmt.Sprintf("`%s`", table)
-}
-
-func userOrRole(user string, host string, role string, hasRoles bool) (string, bool, error) {
-	if len(user) > 0 && len(host) > 0 {
-		return fmt.Sprintf("'%s'@'%s'", user, host), false, nil
-	} else if len(role) > 0 {
-		if !hasRoles {
-			return "", false, fmt.Errorf("Roles are only supported on MySQL 8 and above")
-		}
-
-		return fmt.Sprintf("'%s'", role), true, nil
-	} else {
-		return "", false, fmt.Errorf("user with host or a role is required")
-	}
-}
-
-func supportsRoles(db *sql.DB) (bool, error) {
-	currentVersion, err := serverVersion(db)
-	if err != nil {
-		return false, err
-	}
-
-	requiredVersion, _ := version.NewVersion("8.0.0")
-	hasRoles := currentVersion.GreaterThan(requiredVersion)
-	return hasRoles, nil
 }
 
 func CreateGrant(d *schema.ResourceData, meta interface{}) error {
@@ -501,15 +447,7 @@ func showGrants(db *sql.DB, user string) ([]*MySQLGrant, error) {
 			return nil, fmt.Errorf("failed to parse grant statement: %s", rawGrant)
 		}
 
-		privsStr := m[1]
-		rem1 := regexp.MustCompile("[A-Z]+\\ ?\\([a-zA-Z0-9_,\\ `]+\\)|[A-Z]+ [A-Z]+ [A-Z]+|[A-Z]+ [A-Z]+|[A-Z]+")
-		priv_list := rem1.FindAllString(privsStr, -1)
-
-		privileges := make([]string, len(priv_list))
-
-		for i, priv := range priv_list {
-			privileges[i] = strings.TrimSpace(priv)
-		}
+		privileges := parsePrivileges(m[1])
 
 		grant := &MySQLGrant{
 			Database:   strings.ReplaceAll(m[2], "`", ""),

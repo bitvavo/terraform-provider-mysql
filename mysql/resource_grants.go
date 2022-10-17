@@ -129,7 +129,7 @@ func expandGrants(p *schema.Set) []SubGrantRead {
 }
 
 func CreateGrants(d *schema.ResourceData, meta interface{}) error {
-	log.Printf("SQL: USING CREATE")
+	log.Printf("[DEBUG] USING CREATE")
 	db, err := meta.(*MySQLConfiguration).GetDbConn()
 	if err != nil {
 		return err
@@ -166,8 +166,6 @@ func CreateGrants(d *schema.ResourceData, meta interface{}) error {
 			return fmt.Errorf("one of privileges or roles is required")
 		}
 
-		log.Printf("%v", f.Privileges)
-
 		user := d.Get("user").(string)
 		host := d.Get("host").(string)
 		role := d.Get("role").(string)
@@ -199,7 +197,7 @@ func CreateGrants(d *schema.ResourceData, meta interface{}) error {
 			stmtSQL += " WITH GRANT OPTION"
 		}
 
-		log.Println("[DEBUG] SQL:", stmtSQL)
+		log.Println("[DEBUG] SQL: ", stmtSQL)
 		_, err = db.Exec(stmtSQL)
 		if err != nil {
 			return fmt.Errorf("error running SQL (%s): %s", stmtSQL, err)
@@ -213,7 +211,7 @@ func CreateGrants(d *schema.ResourceData, meta interface{}) error {
 }
 
 func ReadGrants(d *schema.ResourceData, meta interface{}) error {
-	log.Printf("SQL: USING READ")
+	log.Printf("[DEBUG] USING READ")
 	db, err := meta.(*MySQLConfiguration).GetDbConn()
 	if err != nil {
 		return err
@@ -250,14 +248,14 @@ func ReadGrants(d *schema.ResourceData, meta interface{}) error {
 		grantResource["grant"] = grant.Grant
 		subGranter = append(subGranter, grantResource)
 	}
-	log.Printf("%+v", subGranter)
+
 	d.Set("grants", subGranter)
 
 	return nil
 }
 
 func UpdateGrants(d *schema.ResourceData, meta interface{}) error {
-	log.Printf("SQL: USING UPDATE")
+	log.Printf("[DEBUG] USING UPDATE")
 	db, err := meta.(*MySQLConfiguration).GetDbConn()
 	if err != nil {
 		return err
@@ -290,25 +288,39 @@ func UpdateGrants(d *schema.ResourceData, meta interface{}) error {
 }
 
 func updatePrivilegesMulti(d *schema.ResourceData, db *sql.DB, user string) error {
-	oldPrivsIf, newPrivsIf := d.GetChange("grants")
-	oldPrivsIfn := oldPrivsIf.(*schema.Set)
-	newPrivsIfn := newPrivsIf.(*schema.Set)
-	newPrivsList := newPrivsIfn.Difference(oldPrivsIfn).List()
-	oldPrivsList := oldPrivsIfn.Difference(newPrivsIfn).List()
+	oldPrivs, newPrivs := d.GetChange("grants")
+	oldPrivsSet := oldPrivs.(*schema.Set)
+	newPrivsSet := newPrivs.(*schema.Set)
+	newPrivsList := newPrivsSet.Difference(oldPrivsSet).List()
+	oldPrivsList := oldPrivsSet.Difference(newPrivsSet).List()
 
-	log.Printf("newPrivileges: %+v\n", newPrivsList)
-	log.Printf("oldPrivileges: %+v\n", oldPrivsList)
+	log.Printf("[DEBUG] Updating privileges:\n new privileges: %+v\n old privileges: %+v", newPrivsList, oldPrivsList)
 
 	for _, oldPriv := range oldPrivsList {
 		oldPrivObj := oldPriv.(map[string]interface{})
 		found := false
 		for _, newPriv := range newPrivsList {
 			newPrivObj := newPriv.(map[string]interface{})
-			log.Printf("SQL: %s, %s, %s, %s", formatTableName(newPrivObj["table"].(string)), formatTableName(oldPrivObj["table"].(string)), formatDatabaseName(oldPrivObj["database"].(string)), formatDatabaseName(newPrivObj["database"].(string)))
-			if formatTableName(newPrivObj["table"].(string)) == formatTableName(oldPrivObj["table"].(string)) && formatDatabaseName(oldPrivObj["database"].(string)) == formatDatabaseName(newPrivObj["database"].(string)) {
+			log.Printf(
+				"SQL: %s, %s, %s, %s",
+				formatTableName(newPrivObj["table"].(string)),
+				formatTableName(oldPrivObj["table"].(string)),
+				formatDatabaseName(oldPrivObj["database"].(string)),
+				formatDatabaseName(newPrivObj["database"].(string)))
+
+			if formatTableName(newPrivObj["table"].(string)) == formatTableName(oldPrivObj["table"].(string)) &&
+				formatDatabaseName(oldPrivObj["database"].(string)) == formatDatabaseName(newPrivObj["database"].(string)) {
+
 				found = true
-				log.Printf("SQL: %s:%s found in new, updating", newPrivObj["database"], formatTableName(newPrivObj["table"].(string)))
-				err := updatePrivileges(newPrivObj["privileges"].(*schema.Set), oldPrivObj["privileges"].(*schema.Set), db, user, formatDatabaseName(oldPrivObj["database"].(string)), formatTableName(oldPrivObj["table"].(string)))
+				log.Printf("[DEBUG] %s:%s found in new, updating", newPrivObj["database"], formatTableName(newPrivObj["table"].(string)))
+				err := updatePrivileges(
+					newPrivObj["privileges"].(*schema.Set),
+					oldPrivObj["privileges"].(*schema.Set),
+					db,
+					user,
+					formatDatabaseName(oldPrivObj["database"].(string)),
+					formatTableName(oldPrivObj["table"].(string)))
+
 				if err != nil {
 					return err
 				}
@@ -316,8 +328,15 @@ func updatePrivilegesMulti(d *schema.ResourceData, db *sql.DB, user string) erro
 			}
 		}
 		if !found {
-			log.Printf("%s:%s NOT found in new, creating", formatDatabaseName(oldPrivObj["database"].(string)), formatTableName(oldPrivObj["table"].(string)))
-			err := updatePrivileges(schema.NewSet(schema.HashString, nil), oldPrivObj["privileges"].(*schema.Set), db, user, formatDatabaseName(oldPrivObj["database"].(string)), formatTableName(oldPrivObj["table"].(string)))
+			log.Printf("[DEBUG] %s:%s NOT found in new, creating", formatDatabaseName(oldPrivObj["database"].(string)), formatTableName(oldPrivObj["table"].(string)))
+			err := updatePrivileges(
+				schema.NewSet(schema.HashString, nil),
+				oldPrivObj["privileges"].(*schema.Set),
+				db,
+				user,
+				formatDatabaseName(oldPrivObj["database"].(string)),
+				formatTableName(oldPrivObj["table"].(string)))
+
 			if err != nil {
 				return err
 			}
@@ -329,14 +348,22 @@ func updatePrivilegesMulti(d *schema.ResourceData, db *sql.DB, user string) erro
 		found := false
 		for _, oldPriv := range oldPrivsList {
 			oldPrivObj := oldPriv.(map[string]interface{})
-			if formatTableName(newPrivObj["table"].(string)) == formatTableName(oldPrivObj["table"].(string)) && formatDatabaseName(oldPrivObj["database"].(string)) == formatDatabaseName(newPrivObj["database"].(string)) {
+			if formatTableName(newPrivObj["table"].(string)) == formatTableName(oldPrivObj["table"].(string)) &&
+				formatDatabaseName(oldPrivObj["database"].(string)) == formatDatabaseName(newPrivObj["database"].(string)) {
 				found = true
 				// covered by previous iterator
 				break
 			}
 		}
 		if !found {
-			err := updatePrivileges(newPrivObj["privileges"].(*schema.Set), schema.NewSet(schema.HashString, nil), db, user, formatDatabaseName(newPrivObj["database"].(string)), formatTableName(newPrivObj["table"].(string)))
+			err := updatePrivileges(
+				newPrivObj["privileges"].(*schema.Set),
+				schema.NewSet(schema.HashString, nil),
+				db,
+				user,
+				formatDatabaseName(newPrivObj["database"].(string)),
+				formatTableName(newPrivObj["table"].(string)))
+
 			if err != nil {
 				return err
 			}
@@ -384,8 +411,9 @@ func DeleteGrants(d *schema.ResourceData, meta interface{}) error {
 				table,
 				userOrRole)
 
-			log.Printf("[DEBUG] SQL: %s", sql)
+			log.Printf("[DEBUG] REVOKE GRANTS SQL: %s", sql)
 			_, err = db.Exec(sql)
+
 			if err != nil {
 				if regexp.MustCompile("Error 1141:").MatchString(err.Error()) {
 					// Error 1141: There is no such grant defined for user
@@ -406,7 +434,7 @@ func DeleteGrants(d *schema.ResourceData, meta interface{}) error {
 		}
 
 		sql = fmt.Sprintf("REVOKE %s FROM %s", whatToRevoke, userOrRole)
-		log.Printf("[DEBUG] SQL: %s", sql)
+		log.Printf("[DEBUG] REVOKE GRANTS SQL: %s", sql)
 		_, err = db.Exec(sql)
 		if err != nil {
 			return fmt.Errorf("error revoking ALL (%s): %s", sql, err)
