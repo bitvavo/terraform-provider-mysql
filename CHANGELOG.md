@@ -1,4 +1,4 @@
-## 1.10.9 (August 29, 2022)
+## 1.10.9 (October 18, 2022)
 
 FEATURES:
 * Added new resource `mysql_grants` ([#7](https://github.com/bitvavo/terraform-provider-mysql/pull/7))
